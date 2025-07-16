@@ -93,13 +93,10 @@
             let debounceTimeout;
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
-            let lastSelection = "";
             
-            // Zmienne do obsługi pauzy/wznowienia
-            const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
-            let isPaused = false;
-            let fullTextToSpeak = '';
-            let charIndexAtPause = 0;
+            // Zmienne, które ZAWSZE przechowują stan ostatniego czytania
+            let lastUtteranceText = '';
+            let lastCharIndex = 0;
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -124,58 +121,73 @@
                 speechSynthesis.onvoiceschanged = loadVoices;
             }
 
-            function updatePlaybackButtons() {
-                const isSpeaking = window.speechSynthesis.speaking;
-                pauseBtn.disabled = !isSpeaking || isPaused;
-                resumeBtn.disabled = !isPaused;
-            }
-            setInterval(updatePlaybackButtons, 250);
-
-            const speak = (text, isResuming = false) => {
+            const speak = (text, resumeIndex = 0) => {
                 if (!isTtsEnabled || !text) return;
 
                 window.speechSynthesis.cancel();
 
-                if (!isResuming) {
-                    fullTextToSpeak = text;
+                // Zawsze zapamiętuj główny tekst
+                if (resumeIndex === 0) {
+                    lastUtteranceText = text;
                 }
-
-                const utterance = new SpeechSynthesisUtterance(text);
+                
+                const textToSpeak = text.substring(resumeIndex);
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
                 utterance.lang = 'pl-PL';
                 if (selectedVoice) utterance.voice = selectedVoice;
                 
                 utterance.onboundary = (event) => {
-                    if (!isPaused) {
-                        charIndexAtPause = event.charIndex + (isResuming ? fullTextToSpeak.length - text.length : 0);
+                    lastCharIndex = resumeIndex + event.charIndex;
+                };
+                
+                utterance.onstart = () => {
+                    statusEl.textContent = 'Czytam...';
+                    pauseBtn.disabled = false;
+                };
+                
+                utterance.onend = () => {
+                    statusEl.textContent = 'Zakończono.';
+                    pauseBtn.disabled = true;
+                    // Jeśli doszło do końca, ustaw wskaźnik na początek do następnego wznowienia
+                    if (lastCharIndex >= lastUtteranceText.length - 1) {
+                        lastCharIndex = 0;
                     }
                 };
                 
-                utterance.onstart = () => { isPaused = false; statusEl.textContent = 'Czytam...'; };
-                utterance.onend = () => { isPaused = false; statusEl.textContent = 'Zakończono.'; };
-                utterance.onerror = () => { isPaused = false; statusEl.textContent = 'Błąd czytania.'; };
+                utterance.onerror = () => {
+                    statusEl.textContent = 'Błąd czytania.';
+                    pauseBtn.disabled = true;
+                };
 
                 window.speechSynthesis.speak(utterance);
             };
 
+            const handleNewSelection = (selection) => {
+                if (selection) {
+                    lastCharIndex = 0; // Resetuj postęp dla nowego tekstu
+                    speak(selection, 0);
+                    resumeBtn.disabled = false; // Aktywuj Wznów na stałe po pierwszym czytaniu
+                }
+            };
+
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
-                const currentSelection = window.getSelection().toString().trim();
-                if (currentSelection) {
-                    lastSelection = currentSelection;
-                }
                 
                 clearTimeout(debounceTimeout);
-                if (!isTouchDevice) {
+                if (!window.matchMedia("(pointer: coarse)").matches) {
                     debounceTimeout = setTimeout(() => {
                         const selectionNow = window.getSelection().toString().trim();
-                        if (selectionNow) speak(selectionNow);
+                        handleNewSelection(selectionNow);
                     }, 500);
                 }
             });
 
             document.addEventListener('touchend', () => {
-                if (!isTtsEnabled || isPaused) return;
-                if (lastSelection) speak(lastSelection);
+                if (!isTtsEnabled) return;
+                const selectionNow = window.getSelection().toString().trim();
+                if (selectionNow) {
+                    handleNewSelection(selectionNow);
+                }
             });
 
             toggleBtn.addEventListener('click', () => {
@@ -184,8 +196,8 @@
                 toggleBtn.classList.toggle('active', isTtsEnabled);
                 if (!isTtsEnabled) {
                     window.speechSynthesis.cancel();
-                    isPaused = false;
                     statusEl.textContent = 'Czytanie jest wyłączone.';
+                    pauseBtn.disabled = true;
                 } else {
                     statusEl.textContent = 'Czekam na zaznaczenie...';
                 }
@@ -205,24 +217,13 @@
 
             pauseBtn.addEventListener('click', () => {
                 if (window.speechSynthesis.speaking) {
-                    isPaused = true;
-                    if (isTouchDevice) {
-                        window.speechSynthesis.cancel(); // Obejście dla urządzeń mobilnych
-                    } else {
-                        window.speechSynthesis.pause(); // Standardowa metoda dla desktopu
-                    }
+                    window.speechSynthesis.cancel();
                 }
             });
 
             resumeBtn.addEventListener('click', () => {
-                if (isPaused) {
-                    if (isTouchDevice) {
-                        const remainingText = fullTextToSpeak.substring(charIndexAtPause);
-                        speak(remainingText, true); // Obejście dla urządzeń mobilnych
-                    } else {
-                        window.speechSynthesis.resume(); // Standardowa metoda dla desktopu
-                    }
-                    isPaused = false;
+                if (lastUtteranceText) {
+                    speak(lastUtteranceText, lastCharIndex);
                 }
             });
         });
