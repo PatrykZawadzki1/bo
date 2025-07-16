@@ -95,7 +95,8 @@
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
             let currentUtterance = null;
-            let lastSpokenPosition = 0; // Track the last spoken position
+            let lastSpokenPosition = 0;
+            const isAndroid = /Android/.test(navigator.userAgent); // Detect Android
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -125,7 +126,7 @@
                     resumeBtn.disabled = window.speechSynthesis.paused ? false : true;
                 } else {
                     pauseBtn.disabled = true;
-                    resumeBtn.disabled = lastSpokenText ? false : true; // Enable resume if there's saved text
+                    resumeBtn.disabled = lastSpokenText ? false : true;
                 }
             }
             setInterval(updatePlaybackButtons, 250);
@@ -162,12 +163,14 @@
                     currentUtterance = null;
                 };
 
-                // Attempt to track progress (not fully reliable across browsers)
-                currentUtterance.onboundary = (event) => {
-                    if (event.name === 'word') {
-                        lastSpokenPosition = startPosition + (event.charIndex || 0);
-                    }
-                };
+                // Track progress for Android
+                if (isAndroid) {
+                    currentUtterance.onboundary = (event) => {
+                        if (event.name === 'word') {
+                            lastSpokenPosition = startPosition + (event.charIndex || 0);
+                        }
+                    };
+                }
 
                 window.speechSynthesis.speak(currentUtterance);
             };
@@ -175,43 +178,42 @@
             const processSelection = () => {
                 const selection = window.getSelection().toString();
                 if (selection.trim()) {
-                    lastSpokenPosition = 0; // Reset position for new selection
+                    lastSpokenPosition = 0;
                     speak(selection);
-                } else {
-                    // Don't clear lastSpokenText to allow resuming
-                    if (!window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-                        statusEl.textContent = 'Czekam na zaznaczenie...';
-                    }
+                } else if (!window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+                    statusEl.textContent = 'Czekam na zaznaczenie...';
                 }
             };
 
-            // Handle selection changes on desktop
+            // Desktop selection
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
                 clearTimeout(debounceTimeout);
                 debounceTimeout = setTimeout(processSelection, 400);
             });
 
-            // Handle mobile touch events
+            // Mobile touch events
             document.addEventListener('touchend', () => {
                 if (!isTtsEnabled) return;
                 setTimeout(() => {
                     const selection = window.getSelection().toString();
                     if (selection.trim()) {
-                        lastSpokenPosition = 0; // Reset position for new selection
+                        lastSpokenPosition = 0;
                         speak(selection);
                     }
                 }, 50);
             });
 
-            // Prevent selection from clearing on mobile tap
-            document.addEventListener('touchstart', (e) => {
-                if (!isTtsEnabled) return;
-                const selection = window.getSelection().toString();
-                if (selection.trim()) {
-                    lastSpokenText = selection; // Save selection even if it clears
-                }
-            });
+            // Save selection on Android before it clears
+            if (isAndroid) {
+                document.addEventListener('touchstart', (e) => {
+                    if (!isTtsEnabled) return;
+                    const selection = window.getSelection().toString();
+                    if (selection.trim()) {
+                        lastSpokenText = selection;
+                    }
+                });
+            }
 
             // --- Event Listeners for Buttons ---
 
@@ -252,11 +254,14 @@
             });
 
             resumeBtn.addEventListener('click', () => {
-                if (window.speechSynthesis.paused) {
+                if (window.speechSynthesis.paused && !isAndroid) {
                     window.speechSynthesis.resume();
                     statusEl.textContent = 'Czytam...';
+                } else if (isAndroid && lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
+                    // Android-specific resume: restart from last position
+                    speak(lastSpokenText, lastSpokenPosition);
                 } else if (lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
-                    // Resume from last position if utterance is not active
+                    // Fallback for non-Android if utterance is lost
                     speak(lastSpokenText, lastSpokenPosition);
                 }
             });
