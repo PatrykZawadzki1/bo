@@ -93,7 +93,13 @@
             let debounceTimeout;
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
-            let lastSelection = ""; // Przechowuje ostatnie zaznaczenie
+            let lastSelection = "";
+            
+            // Zmienne do obsługi pauzy/wznowienia
+            const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
+            let isPaused = false;
+            let fullTextToSpeak = '';
+            let charIndexAtPause = 0;
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -120,64 +126,57 @@
 
             function updatePlaybackButtons() {
                 const isSpeaking = window.speechSynthesis.speaking;
-                const isPaused = window.speechSynthesis.paused;
                 pauseBtn.disabled = !isSpeaking || isPaused;
                 resumeBtn.disabled = !isPaused;
             }
             setInterval(updatePlaybackButtons, 250);
 
-            const speak = (text) => {
+            const speak = (text, isResuming = false) => {
                 if (!isTtsEnabled || !text) return;
-                
-                // Nie uruchamiaj mowy, jeśli ten sam tekst jest już odtwarzany
-                if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-                    const currentText = window.speechSynthesis.utterance?.text;
-                    if (currentText === text) return;
-                }
 
                 window.speechSynthesis.cancel();
+
+                if (!isResuming) {
+                    fullTextToSpeak = text;
+                }
 
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.lang = 'pl-PL';
                 if (selectedVoice) utterance.voice = selectedVoice;
                 
-                utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
-                utterance.onend = () => { statusEl.textContent = 'Zakończono.'; };
-                utterance.onerror = () => { statusEl.textContent = 'Błąd czytania.'; };
+                utterance.onboundary = (event) => {
+                    if (!isPaused) {
+                        charIndexAtPause = event.charIndex + (isResuming ? fullTextToSpeak.length - text.length : 0);
+                    }
+                };
+                
+                utterance.onstart = () => { isPaused = false; statusEl.textContent = 'Czytam...'; };
+                utterance.onend = () => { isPaused = false; statusEl.textContent = 'Zakończono.'; };
+                utterance.onerror = () => { isPaused = false; statusEl.textContent = 'Błąd czytania.'; };
 
                 window.speechSynthesis.speak(utterance);
             };
 
-            // --- LOGIKA ZAZNACZENIA ---
-
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
-                
                 const currentSelection = window.getSelection().toString().trim();
                 if (currentSelection) {
                     lastSelection = currentSelection;
                 }
-
-                // Dla Desktopu: czytaj po chwili bezczynności
+                
                 clearTimeout(debounceTimeout);
-                debounceTimeout = setTimeout(() => {
-                    const selectionNow = window.getSelection().toString().trim();
-                    if (selectionNow) {
-                        speak(selectionNow);
-                    }
-                }, 500);
-            });
-
-            // Dla urządzeń mobilnych: czytaj po puszczeniu palca
-            document.addEventListener('touchend', () => {
-                if (!isTtsEnabled) return;
-                // Odczytaj ostatni zapamiętany tekst, bo aktualne zaznaczenie mogło zniknąć
-                if (lastSelection) {
-                    speak(lastSelection);
+                if (!isTouchDevice) {
+                    debounceTimeout = setTimeout(() => {
+                        const selectionNow = window.getSelection().toString().trim();
+                        if (selectionNow) speak(selectionNow);
+                    }, 500);
                 }
             });
 
-            // --- PRZYCISKI ---
+            document.addEventListener('touchend', () => {
+                if (!isTtsEnabled || isPaused) return;
+                if (lastSelection) speak(lastSelection);
+            });
 
             toggleBtn.addEventListener('click', () => {
                 isTtsEnabled = !isTtsEnabled;
@@ -185,6 +184,7 @@
                 toggleBtn.classList.toggle('active', isTtsEnabled);
                 if (!isTtsEnabled) {
                     window.speechSynthesis.cancel();
+                    isPaused = false;
                     statusEl.textContent = 'Czytanie jest wyłączone.';
                 } else {
                     statusEl.textContent = 'Czekam na zaznaczenie...';
@@ -204,11 +204,26 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                window.speechSynthesis.pause();
+                if (window.speechSynthesis.speaking) {
+                    isPaused = true;
+                    if (isTouchDevice) {
+                        window.speechSynthesis.cancel(); // Obejście dla urządzeń mobilnych
+                    } else {
+                        window.speechSynthesis.pause(); // Standardowa metoda dla desktopu
+                    }
+                }
             });
 
             resumeBtn.addEventListener('click', () => {
-                window.speechSynthesis.resume();
+                if (isPaused) {
+                    if (isTouchDevice) {
+                        const remainingText = fullTextToSpeak.substring(charIndexAtPause);
+                        speak(remainingText, true); // Obejście dla urządzeń mobilnych
+                    } else {
+                        window.speechSynthesis.resume(); // Standardowa metoda dla desktopu
+                    }
+                    isPaused = false;
+                }
             });
         });
     </script>
