@@ -112,7 +112,9 @@
 
             let isTtsEnabled = true;
             let debounceTimeout;
-            let lastSpokenText = '';
+            let fullTextToSpeak = '';
+            let charIndexAtPause = 0;
+            let isPausedManually = false;
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
 
@@ -127,16 +129,15 @@
                 const voices = window.speechSynthesis.getVoices();
                 if (voices.length === 0) return;
 
-                voiceListEl.innerHTML = ''; // Wyczyść listę przed wypełnieniem
+                voiceListEl.innerHTML = '';
                 voices.forEach(voice => {
                     const isDefault = voice.default ? ' (Domyślny)' : '';
                     voiceListEl.innerHTML += `• ${voice.name} [${voice.lang}]${isDefault}\n`;
                 });
 
                 const plVoices = voices.filter(voice => voice.lang === 'pl-PL');
-
-                polishVoices.female = plVoices.find(v => v.name.includes('Zofia') || v.name.toLowerCase().includes('female')) || plVoices.find(v => v.gender === 'female') || null;
-                polishVoices.male = plVoices.find(v => v.name.includes('Krzysztof') || v.name.toLowerCase().includes('male')) || plVoices.find(v => v.gender === 'male') || null;
+                polishVoices.female = plVoices.find(v => v.name.includes('Paulina') || v.name.toLowerCase().includes('female')) || plVoices.find(v => v.gender === 'female') || null;
+                polishVoices.male = plVoices.find(v => v.name.includes('Adam') || v.name.toLowerCase().includes('male')) || plVoices.find(v => v.gender === 'male') || null;
 
                 if (polishVoices.female) femaleBtn.disabled = false;
                 if (polishVoices.male) maleBtn.disabled = false;
@@ -148,9 +149,12 @@
             }
 
             function updatePlaybackButtons() {
-                if (window.speechSynthesis.speaking) {
+                if (window.speechSynthesis.speaking && !isPausedManually) {
                     pauseBtn.disabled = false;
-                    resumeBtn.disabled = window.speechSynthesis.paused ? false : true;
+                    resumeBtn.disabled = true;
+                } else if (isPausedManually) {
+                    pauseBtn.disabled = true;
+                    resumeBtn.disabled = false;
                 } else {
                     pauseBtn.disabled = true;
                     resumeBtn.disabled = true;
@@ -158,25 +162,29 @@
             }
             setInterval(updatePlaybackButtons, 250);
 
-            const speak = (text) => {
+            const speak = (text, isResuming = false) => {
                 if (!isTtsEnabled) return;
                 const trimmedText = text.trim();
                 if (!trimmedText) return;
 
-                if (window.speechSynthesis.speaking && lastSpokenText === trimmedText) return;
-
                 window.speechSynthesis.cancel();
-                lastSpokenText = trimmedText;
+
+                if (!isResuming) {
+                    fullTextToSpeak = trimmedText;
+                    charIndexAtPause = 0;
+                }
 
                 const utterance = new SpeechSynthesisUtterance(trimmedText);
                 utterance.lang = 'pl-PL';
-                if (selectedVoice) {
-                    utterance.voice = selectedVoice;
-                }
+                if (selectedVoice) utterance.voice = selectedVoice;
                 
-                utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
-                utterance.onend = () => { statusEl.textContent = 'Zakończono.'; lastSpokenText = ''; };
-                utterance.onerror = () => { statusEl.textContent = 'Błąd czytania.'; };
+                utterance.onboundary = (event) => {
+                    charIndexAtPause = event.charIndex;
+                };
+                
+                utterance.onstart = () => { isPausedManually = false; statusEl.textContent = 'Czytam...'; };
+                utterance.onend = () => { isPausedManually = false; statusEl.textContent = 'Zakończono.'; };
+                utterance.onerror = () => { isPausedManually = false; statusEl.textContent = 'Błąd czytania.'; };
 
                 window.speechSynthesis.speak(utterance);
             };
@@ -208,8 +216,6 @@
                 }, 50);
             });
 
-            // --- Event Listeners for Buttons ---
-
             toggleBtn.addEventListener('click', () => {
                 isTtsEnabled = !isTtsEnabled;
                 if (isTtsEnabled) {
@@ -220,6 +226,7 @@
                     toggleBtn.textContent = 'Czytanie Wyłączone';
                     toggleBtn.classList.remove('active');
                     window.speechSynthesis.cancel();
+                    isPausedManually = false;
                     statusEl.textContent = 'Czytanie jest wyłączone.';
                 }
             });
@@ -237,11 +244,17 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                window.speechSynthesis.pause();
+                if (window.speechSynthesis.speaking) {
+                    isPausedManually = true;
+                    window.speechSynthesis.cancel(); // Zamiast pause()
+                }
             });
 
             resumeBtn.addEventListener('click', () => {
-                window.speechSynthesis.resume();
+                if (isPausedManually && fullTextToSpeak) {
+                    const remainingText = fullTextToSpeak.substring(charIndexAtPause);
+                    speak(remainingText, true); // Wznów od zapisanego miejsca
+                }
             });
         });
     </script>
