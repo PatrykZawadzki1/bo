@@ -97,6 +97,7 @@
             let lastUtteranceText = '';
             let lastCharIndex = 0;
             let isPaused = false;
+            let lastMobileSelection = '';
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -173,22 +174,30 @@
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
                 
-                clearTimeout(debounceTimeout);
-                if (!window.matchMedia("(pointer: coarse)").matches) {
+                const selectionNow = window.getSelection().toString().trim();
+                
+                // Dla mobile: zapamiętuj tekst w trakcie zaznaczania
+                if (window.matchMedia("(pointer: coarse)").matches) {
+                    if (selectionNow) {
+                        lastMobileSelection = selectionNow;
+                    }
+                } 
+                // Dla desktopu: użyj debouncingu
+                else {
+                    clearTimeout(debounceTimeout);
                     debounceTimeout = setTimeout(() => {
-                        const selectionNow = window.getSelection().toString().trim();
                         if(selectionNow) handleNewSelection(selectionNow);
-                    }, 500);
+                    }, 400);
                 }
             });
 
-            // Użycie 'mouseup' zamiast 'touchend' dla lepszej kompatybilności
-            document.addEventListener('mouseup', () => {
+            // Przywrócono 'touchend' dla urządzeń mobilnych
+            document.addEventListener('touchend', () => {
                 if (!isTtsEnabled || !window.matchMedia("(pointer: coarse)").matches) return;
                 
-                const selectionNow = window.getSelection().toString().trim();
-                if (selectionNow) {
-                    handleNewSelection(selectionNow);
+                if (lastMobileSelection) {
+                    handleNewSelection(lastMobileSelection);
+                    lastMobileSelection = ''; // Wyczyść po użyciu
                 }
             });
 
@@ -218,7 +227,7 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                isPaused = true; // Ustaw flagę pauzy
+                isPaused = true;
                 window.speechSynthesis.cancel();
             });
 
