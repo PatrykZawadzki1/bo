@@ -14,13 +14,16 @@
             color: #1c1e21;
             margin: 0;
         }
-        #main-container {
+        #main-container, #debug-voices-container {
             max-width: 800px;
             margin: 0 auto;
             background-color: #fff;
             padding: 1rem 1.5rem;
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        #debug-voices-container {
+            margin-top: 1.5rem;
         }
         h1 { text-align: center; }
         #controls-container {
@@ -60,6 +63,18 @@
             color: #007bff;
             min-height: 24px;
         }
+        #voice-list {
+            background-color: #282c34;
+            color: #abb2bf;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -80,6 +95,11 @@
         <div id="status">Czekam na zaznaczenie...</div>
     </div>
 
+    <div id="debug-voices-container">
+        <h3>Dostępne głosy (debug):</h3>
+        <pre id="voice-list">Ładowanie głosów...</pre>
+    </div>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const statusEl = document.getElementById('status');
@@ -88,6 +108,7 @@
             const maleBtn = document.getElementById('male-voice-btn');
             const pauseBtn = document.getElementById('pause-btn');
             const resumeBtn = document.getElementById('resume-btn');
+            const voiceListEl = document.getElementById('voice-list');
 
             let isTtsEnabled = true;
             let debounceTimeout;
@@ -98,15 +119,24 @@
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
                 [toggleBtn, femaleBtn, maleBtn, pauseBtn, resumeBtn].forEach(btn => btn.disabled = true);
+                voiceListEl.textContent = 'API niedostępne.';
                 return;
             }
 
             function loadVoices() {
                 const voices = window.speechSynthesis.getVoices();
+                if (voices.length === 0) return;
+
+                voiceListEl.innerHTML = ''; // Wyczyść listę przed wypełnieniem
+                voices.forEach(voice => {
+                    const isDefault = voice.default ? ' (Domyślny)' : '';
+                    voiceListEl.innerHTML += `• ${voice.name} [${voice.lang}]${isDefault}\n`;
+                });
+
                 const plVoices = voices.filter(voice => voice.lang === 'pl-PL');
 
-                polishVoices.female = plVoices.find(v => v.name.includes('Adam') || v.name.toLowerCase().includes('female')) || null;
-                polishVoices.male = plVoices.find(v => v.name.includes('Paulina') || v.name.toLowerCase().includes('male')) || null;
+                polishVoices.female = plVoices.find(v => v.name.includes('Zofia') || v.name.toLowerCase().includes('female')) || plVoices.find(v => v.gender === 'female') || null;
+                polishVoices.male = plVoices.find(v => v.name.includes('Krzysztof') || v.name.toLowerCase().includes('male')) || plVoices.find(v => v.gender === 'male') || null;
 
                 if (polishVoices.female) femaleBtn.disabled = false;
                 if (polishVoices.male) maleBtn.disabled = false;
