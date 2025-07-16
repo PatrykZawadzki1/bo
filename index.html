@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Czytaj Zaznaczenie</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding: 1.5rem;
+            line-height: 1.7;
+            font-size: 18px;
+            -webkit-user-select: text; /* Umożliwia zaznaczanie tekstu na iOS */
+            user-select: text;
+            background-color: #f0f0f0;
+            color: #333;
+        }
+        h1, p {
+            text-align: center;
+        }
+        #container {
+            background-color: #fff;
+            padding: 1rem 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        #status {
+            margin-top: 1rem;
+            font-weight: bold;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <h1>Czytnik Tekstu</h1>
+        <p>Zaznacz dowolny tekst poniżej, aby usłyszeć go na głos.</p>
+        <hr>
+        <p>To jest przykładowy tekst do przetestowania aplikacji. Zaznacz fragment, a syntezator mowy go odczyta. Technologia ta nazywa się Web Speech API i jest wbudowana w nowoczesne przeglądarki.</p>
+        <p>Działanie może się różnić w zależności od urządzenia i przeglądarki. Na przykład, na iPhonie może być konieczne dotknięcie ekranu po zaznaczeniu tekstu, aby uruchomić odczyt.</p>
+    </div>
+    <p id="status">Czekam na zaznaczenie...</p>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const statusEl = document.getElementById('status');
+            let lastText = '';
+
+            // Sprawdzenie, czy przeglądarka wspiera syntezę mowy
+            if (!('speechSynthesis' in window)) {
+                statusEl.textContent = 'Twoja przeglądarka nie wspiera syntezy mowy.';
+                return;
+            }
+
+            const speak = (text) => {
+                // Anuluj poprzednie czytanie, jeśli jakieś jest w toku
+                window.speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                // Ustawienie języka na polski
+                utterance.lang = 'pl-PL';
+                
+                utterance.onerror = (event) => {
+                    console.error('Błąd syntezy mowy:', event.error);
+                    statusEl.textContent = 'Wystąpił błąd podczas czytania.';
+                };
+
+                window.speechSynthesis.speak(utterance);
+                statusEl.textContent = 'Czytam...';
+            };
+
+            const handleSelection = () => {
+                const selectedText = window.getSelection().toString().trim();
+
+                // Czytaj tylko jeśli zaznaczono nowy, niepusty tekst
+                if (selectedText && selectedText !== lastText) {
+                    lastText = selectedText;
+                    speak(selectedText);
+                } else if (!selectedText) {
+                    // Jeśli zaznaczenie jest puste, zresetuj status
+                    lastText = '';
+                    window.speechSynthesis.cancel();
+                    statusEl.textContent = 'Czekam na zaznaczenie...';
+                }
+            };
+
+            // Nasłuchuj na zmianę zaznaczenia
+            document.addEventListener('selectionchange', handleSelection);
+
+            // Dodatkowe nasłuchiwanie na dotknięcie dla iOS
+            // Na iOS, mowa musi być zainicjowana przez akcję użytkownika.
+            // 'selectionchange' nie zawsze jest traktowane jako taka akcja.
+            // Dotknięcie ekranu po zaznaczeniu tekstu powinno zadziałać.
+            document.addEventListener('touchend', handleSelection);
+        });
+    </script>
+
+</body>
+</html>
