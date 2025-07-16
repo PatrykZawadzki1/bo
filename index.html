@@ -91,10 +91,9 @@
 
             let isTtsEnabled = true;
             let debounceTimeout;
-            let currentUtterance = null;
-            let isPaused = false;
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
+            let lastSelection = ""; // Przechowuje ostatnie zaznaczenie
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -121,69 +120,74 @@
 
             function updatePlaybackButtons() {
                 const isSpeaking = window.speechSynthesis.speaking;
+                const isPaused = window.speechSynthesis.paused;
                 pauseBtn.disabled = !isSpeaking || isPaused;
                 resumeBtn.disabled = !isPaused;
             }
             setInterval(updatePlaybackButtons, 250);
 
             const speak = (text) => {
-                if (!isTtsEnabled) return;
-                const trimmedText = text.trim();
-                if (!trimmedText) return;
+                if (!isTtsEnabled || !text) return;
+                
+                // Nie uruchamiaj mowy, jeśli ten sam tekst jest już odtwarzany
+                if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+                    const currentText = window.speechSynthesis.utterance?.text;
+                    if (currentText === text) return;
+                }
 
                 window.speechSynthesis.cancel();
-                isPaused = false;
 
-                currentUtterance = new SpeechSynthesisUtterance(trimmedText);
-                currentUtterance.lang = 'pl-PL';
-                if (selectedVoice) currentUtterance.voice = selectedVoice;
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'pl-PL';
+                if (selectedVoice) utterance.voice = selectedVoice;
                 
-                currentUtterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
-                currentUtterance.onend = () => { statusEl.textContent = 'Zakończono.'; isPaused = false; currentUtterance = null; };
-                currentUtterance.onerror = () => { statusEl.textContent = 'Błąd czytania.'; isPaused = false; currentUtterance = null; };
+                utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
+                utterance.onend = () => { statusEl.textContent = 'Zakończono.'; };
+                utterance.onerror = () => { statusEl.textContent = 'Błąd czytania.'; };
 
-                window.speechSynthesis.speak(currentUtterance);
+                window.speechSynthesis.speak(utterance);
             };
 
-            const processSelection = () => {
-                const selection = window.getSelection().toString();
-                if (selection.trim()) {
-                    speak(selection);
-                } else {
-                    window.speechSynthesis.cancel();
-                }
-            };
+            // --- LOGIKA ZAZNACZENIA ---
 
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
+                
+                const currentSelection = window.getSelection().toString().trim();
+                if (currentSelection) {
+                    lastSelection = currentSelection;
+                }
+
+                // Dla Desktopu: czytaj po chwili bezczynności
                 clearTimeout(debounceTimeout);
-                debounceTimeout = setTimeout(processSelection, 400);
+                debounceTimeout = setTimeout(() => {
+                    const selectionNow = window.getSelection().toString().trim();
+                    if (selectionNow) {
+                        speak(selectionNow);
+                    }
+                }, 500);
             });
 
+            // Dla urządzeń mobilnych: czytaj po puszczeniu palca
             document.addEventListener('touchend', () => {
                 if (!isTtsEnabled) return;
-                setTimeout(() => {
-                    const selection = window.getSelection().toString();
-                    if (selection.trim()) {
-                        speak(selection);
-                    } else {
-                        window.speechSynthesis.cancel();
-                    }
-                }, 50);
+                // Odczytaj ostatni zapamiętany tekst, bo aktualne zaznaczenie mogło zniknąć
+                if (lastSelection) {
+                    speak(lastSelection);
+                }
             });
+
+            // --- PRZYCISKI ---
 
             toggleBtn.addEventListener('click', () => {
                 isTtsEnabled = !isTtsEnabled;
-                if (isTtsEnabled) {
-                    toggleBtn.textContent = 'Czytanie Włączone';
-                    toggleBtn.classList.add('active');
-                    statusEl.textContent = 'Czekam na zaznaczenie...';
-                } else {
-                    toggleBtn.textContent = 'Czytanie Wyłączone';
-                    toggleBtn.classList.remove('active');
+                toggleBtn.textContent = isTtsEnabled ? 'Czytanie Włączone' : 'Czytanie Wyłączone';
+                toggleBtn.classList.toggle('active', isTtsEnabled);
+                if (!isTtsEnabled) {
                     window.speechSynthesis.cancel();
-                    isPaused = false;
                     statusEl.textContent = 'Czytanie jest wyłączone.';
+                } else {
+                    statusEl.textContent = 'Czekam na zaznaczenie...';
                 }
             });
 
@@ -200,17 +204,11 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                if (window.speechSynthesis.speaking) {
-                    isPaused = true;
-                    window.speechSynthesis.pause();
-                }
+                window.speechSynthesis.pause();
             });
 
             resumeBtn.addEventListener('click', () => {
-                if (isPaused) {
-                    isPaused = false;
-                    window.speechSynthesis.resume();
-                }
+                window.speechSynthesis.resume();
             });
         });
     </script>
