@@ -105,8 +105,8 @@
                 const voices = window.speechSynthesis.getVoices();
                 const plVoices = voices.filter(voice => voice.lang === 'pl-PL');
 
-                polishVoices.female = plVoices.find(v => v.name.includes('Zofia') || v.name.toLowerCase().includes('female')) || null;
-                polishVoices.male = plVoices.find(v => v.name.includes('Krzysztof') || v.name.toLowerCase().includes('male')) || null;
+                polishVoices.female = plVoices.find(v => v.name.includes('Adam') || v.name.toLowerCase().includes('female')) || null;
+                polishVoices.male = plVoices.find(v => v.name.includes('Paulina') || v.name.toLowerCase().includes('male')) || null;
 
                 if (polishVoices.female) femaleBtn.disabled = false;
                 if (polishVoices.male) maleBtn.disabled = false;
