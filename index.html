@@ -64,8 +64,16 @@
 
             const speak = (text) => {
                 const trimmedText = text.trim();
-                if (!trimmedText || (window.speechSynthesis.speaking && window.speechSynthesis.utterance && window.speechSynthesis.utterance.text === trimmedText)) {
+                if (!trimmedText) {
                     return;
+                }
+                
+                // Sprawdź, czy ten sam tekst nie jest już czytany
+                if (window.speechSynthesis.speaking) {
+                    const currentUtterance = window.speechSynthesis.utterance;
+                    if (currentUtterance && currentUtterance.text === trimmedText) {
+                        return;
+                    }
                 }
 
                 window.speechSynthesis.cancel();
@@ -80,21 +88,33 @@
                 window.speechSynthesis.speak(utterance);
             };
 
-            const handleSelection = () => {
+            const processSelection = () => {
                 const selection = window.getSelection().toString();
                 if (selection.trim()) {
                     speak(selection);
+                } else {
+                    // Jeśli nie ma zaznaczenia, zatrzymaj mowę i zresetuj status
+                    window.speechSynthesis.cancel();
+                    statusEl.textContent = 'Czekam na zaznaczenie...';
                 }
             };
 
-            // Wyzwalacz dla Android/PC (automatyczny z opóźnieniem)
+            // Główny mechanizm oparty na 'selectionchange'
             document.addEventListener('selectionchange', () => {
                 clearTimeout(debounceTimeout);
-                debounceTimeout = setTimeout(handleSelection, 400);
+                // Użyj opóźnienia, aby poczekać na zakończenie zaznaczania przez użytkownika
+                debounceTimeout = setTimeout(() => {
+                    // Po upływie opóźnienia, ponownie sprawdź aktualne zaznaczenie
+                    processSelection();
+                }, 400);
             });
 
-            // Wyzwalacz dla iOS (ręczny po dotknięciu)
-            document.addEventListener('touchend', handleSelection);
+            // Dodatkowy wyzwalacz dla iOS, który reaguje na dotknięcie
+            document.addEventListener('touchend', () => {
+                // Nie używaj opóźnienia, reaguj natychmiast na dotknięcie
+                // To pomaga "odblokować" mowę na iOS
+                processSelection();
+            });
         });
     </script>
 
