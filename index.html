@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Czytaj Zaznaczenie v3</title>
+    <title>Czytaj Zaznaczenie</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -37,23 +37,6 @@
             color: #007bff;
             min-height: 24px;
         }
-        #debug-container {
-            margin-top: 2rem;
-            border-top: 1px solid #ccc;
-            padding-top: 1rem;
-        }
-        #debug-log {
-            background-color: #282c34;
-            color: #abb2bf;
-            padding: 10px;
-            border-radius: 5px;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            max-height: 200px;
-            overflow-y: auto;
-        }
     </style>
 </head>
 <body>
@@ -61,130 +44,57 @@
     <div id="main-container">
         <h1>Czytnik Tekstu</h1>
         <div id="instructions">
-            <!-- Instrukcje zostaną wstawione przez JS -->
+            <p>Zaznacz tekst, aby go odsłuchać. Na niektórych urządzeniach (np. iPhone) może być konieczne dotknięcie ekranu po zaznaczeniu.</p>
         </div>
         
         <p>To jest przykładowy tekst do przetestowania aplikacji. Zaznacz fragment, a syntezator mowy go odczyta. Technologia ta nazywa się Web Speech API i jest wbudowana w nowoczesne przeglądarki.</p>
-        <p>Działanie aplikacji dostosowuje się do Twojego urządzenia. Poniżej znajduje się konsola debugowania, która wyświetla informacje o jej działaniu.</p>
         
         <div id="status">Czekam na zaznaczenie...</div>
-    </div>
-
-    <div id="debug-container">
-        <h3>Konsola debugowania:</h3>
-        <pre id="debug-log"></pre>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const statusEl = document.getElementById('status');
-            const logEl = document.getElementById('debug-log');
-            const instructionsEl = document.getElementById('instructions');
-            let lastSpokenText = '';
             let debounceTimeout;
 
-            const log = (message) => {
-                const time = new Date().toLocaleTimeString();
-                logEl.innerHTML += `[${time}] ${message}\n`;
-                logEl.scrollTop = logEl.scrollHeight;
-                console.log(message);
-            };
-
-            window.onerror = (message, source, lineno) => {
-                log(`BŁĄD: ${message} w ${source}:${lineno}`);
-                return true;
-            };
-
-            log('Aplikacja zainicjowana.');
-
             if (!('speechSynthesis' in window)) {
-                const msg = 'BŁĄD KRYTYCZNY: Twoja przeglądarka nie wspiera Web Speech API.';
-                statusEl.textContent = msg;
-                log(msg);
+                statusEl.textContent = 'Synteza mowy nie jest wspierana.';
                 return;
             }
-            log('Web Speech API jest dostępne.');
 
             const speak = (text) => {
-                if (!text || text.trim().length === 0) {
-                    log('Pusty tekst, anuluję czytanie.');
+                const trimmedText = text.trim();
+                if (!trimmedText || (window.speechSynthesis.speaking && window.speechSynthesis.utterance && window.speechSynthesis.utterance.text === trimmedText)) {
                     return;
                 }
-                if (text === lastSpokenText && window.speechSynthesis.speaking) {
-                    log('Ten sam tekst jest już czytany. Ignoruję.');
-                    return;
-                }
-                
-                log(`Próba odczytania: "${text}"`);
+
                 window.speechSynthesis.cancel();
 
-                const utterance = new SpeechSynthesisUtterance(text);
+                const utterance = new SpeechSynthesisUtterance(trimmedText);
                 utterance.lang = 'pl-PL';
                 
-                utterance.onstart = () => {
-                    lastSpokenText = text;
-                    statusEl.textContent = 'Czytam...';
-                    log('Rozpoczęto czytanie.');
-                };
-                
-                utterance.onend = () => {
-                    statusEl.textContent = 'Zakończono. Zaznacz nowy tekst.';
-                    log('Zakończono czytanie.');
-                };
-
-                utterance.onerror = (event) => {
-                    const errorMsg = `Błąd syntezy mowy: ${event.error}`;
-                    statusEl.textContent = 'Wystąpił błąd.';
-                    log(errorMsg);
-                };
+                utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
+                utterance.onend = () => { statusEl.textContent = 'Zakończono. Zaznacz nowy tekst.'; };
+                utterance.onerror = () => { statusEl.textContent = 'Wystąpił błąd podczas czytania.'; };
 
                 window.speechSynthesis.speak(utterance);
             };
 
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-            log(`Wykryto platformę: ${isIOS ? 'iOS' : 'Inna (Android/Desktop)'}`);
+            const handleSelection = () => {
+                const selection = window.getSelection().toString();
+                if (selection.trim()) {
+                    speak(selection);
+                }
+            };
 
-            if (isIOS) {
-                instructionsEl.innerHTML = `
-                    <b>Instrukcja (iOS):</b>
-                    <ol>
-                        <li>Zaznacz dowolny tekst na tej stronie.</li>
-                        <li>Po zaznaczeniu, <b>dotknij ekranu</b>, aby odsłuchać.</li>
-                    </ol>`;
-                log('Tryb iOS: Wymagane dotknięcie po zaznaczeniu.');
-                
-                document.addEventListener('touchend', () => {
-                    const currentSelection = window.getSelection().toString().trim();
-                    log('Zdarzenie "touchend" (iOS).');
-                    if (currentSelection) {
-                        speak(currentSelection);
-                    }
-                });
+            // Wyzwalacz dla Android/PC (automatyczny z opóźnieniem)
+            document.addEventListener('selectionchange', () => {
+                clearTimeout(debounceTimeout);
+                debounceTimeout = setTimeout(handleSelection, 400);
+            });
 
-            } else { // Android / Desktop
-                instructionsEl.innerHTML = `
-                    <b>Instrukcja (Android/PC):</b>
-                    <ol>
-                        <li>Zaznacz dowolny tekst na tej stronie.</li>
-                        <li>Czytanie rozpocznie się automatycznie.</li>
-                    </ol>`;
-                log('Tryb Android/Desktop: Czytanie automatyczne.');
-
-                document.addEventListener('selectionchange', () => {
-                    clearTimeout(debounceTimeout);
-                    const selection = window.getSelection().toString().trim();
-                    
-                    if (selection) {
-                        debounceTimeout = setTimeout(() => {
-                            log('Timer zakończony. Uruchamiam czytanie.');
-                            speak(selection);
-                        }, 400); // Czekaj 400ms po ostatniej zmianie zaznaczenia
-                    } else {
-                        window.speechSynthesis.cancel();
-                        lastSpokenText = '';
-                    }
-                });
-            }
+            // Wyzwalacz dla iOS (ręczny po dotknięciu)
+            document.addEventListener('touchend', handleSelection);
         });
     </script>
 
