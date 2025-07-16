@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Czytaj Zaznaczenie</title>
+    <title>Czytaj Zaznaczenie - Rozbudowany</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -23,12 +23,35 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
         h1 { text-align: center; }
-        #instructions {
-            background-color: #e7f3ff;
-            border-left: 5px solid #007bff;
-            padding: 10px 15px;
-            margin: 1rem 0;
-            border-radius: 5px;
+        #controls-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin: 1.5rem 0;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid #ddd;
+        }
+        #controls-container button {
+            padding: 8px 15px;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            background-color: #f8f8f8;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+        #controls-container button:hover {
+            background-color: #e9e9e9;
+        }
+        #controls-container button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        #controls-container button.active {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
         }
         #status {
             text-align: center;
@@ -43,8 +66,13 @@
 
     <div id="main-container">
         <h1>Czytnik Tekstu</h1>
-        <div id="instructions">
-            <p>Zaznacz tekst, aby go odsłuchać. Na niektórych urządzeniach (np. iPhone) może być konieczne dotknięcie ekranu po zaznaczeniu.</p>
+
+        <div id="controls-container">
+            <button id="toggle-tts-btn" class="active">Czytanie Włączone</button>
+            <button id="female-voice-btn" disabled>Głos żeński</button>
+            <button id="male-voice-btn" disabled>Głos męski</button>
+            <button id="pause-btn" disabled>Zatrzymaj</button>
+            <button id="resume-btn" disabled>Wznów</button>
         </div>
         
         <p>To jest przykładowy tekst do przetestowania aplikacji. Zaznacz fragment, a syntezator mowy go odczyta. Technologia ta nazywa się Web Speech API i jest wbudowana w nowoczesne przeglądarki.</p>
@@ -55,36 +83,70 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const statusEl = document.getElementById('status');
+            const toggleBtn = document.getElementById('toggle-tts-btn');
+            const femaleBtn = document.getElementById('female-voice-btn');
+            const maleBtn = document.getElementById('male-voice-btn');
+            const pauseBtn = document.getElementById('pause-btn');
+            const resumeBtn = document.getElementById('resume-btn');
+
+            let isTtsEnabled = true;
             let debounceTimeout;
             let lastSpokenText = '';
+            let selectedVoice = null;
+            let polishVoices = { female: null, male: null };
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
+                [toggleBtn, femaleBtn, maleBtn, pauseBtn, resumeBtn].forEach(btn => btn.disabled = true);
                 return;
             }
 
+            function loadVoices() {
+                const voices = window.speechSynthesis.getVoices();
+                const plVoices = voices.filter(voice => voice.lang === 'pl-PL');
+
+                polishVoices.female = plVoices.find(v => v.name.includes('Zofia') || v.name.toLowerCase().includes('female')) || null;
+                polishVoices.male = plVoices.find(v => v.name.includes('Krzysztof') || v.name.toLowerCase().includes('male')) || null;
+
+                if (polishVoices.female) femaleBtn.disabled = false;
+                if (polishVoices.male) maleBtn.disabled = false;
+            }
+
+            loadVoices();
+            if (speechSynthesis.onvoiceschanged !== undefined) {
+                speechSynthesis.onvoiceschanged = loadVoices;
+            }
+
+            function updatePlaybackButtons() {
+                if (window.speechSynthesis.speaking) {
+                    pauseBtn.disabled = false;
+                    resumeBtn.disabled = window.speechSynthesis.paused ? false : true;
+                } else {
+                    pauseBtn.disabled = true;
+                    resumeBtn.disabled = true;
+                }
+            }
+            setInterval(updatePlaybackButtons, 250);
+
             const speak = (text) => {
+                if (!isTtsEnabled) return;
                 const trimmedText = text.trim();
                 if (!trimmedText) return;
 
-                // Nie czytaj ponownie tego samego tekstu, jeśli już jest czytany
-                if (window.speechSynthesis.speaking && lastSpokenText === trimmedText) {
-                    return;
-                }
+                if (window.speechSynthesis.speaking && lastSpokenText === trimmedText) return;
 
                 window.speechSynthesis.cancel();
                 lastSpokenText = trimmedText;
 
                 const utterance = new SpeechSynthesisUtterance(trimmedText);
                 utterance.lang = 'pl-PL';
+                if (selectedVoice) {
+                    utterance.voice = selectedVoice;
+                }
                 
                 utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
-                utterance.onend = () => { 
-                    statusEl.textContent = 'Zakończono. Zaznacz nowy tekst.';
-                    // Resetuj po zakończeniu, aby można było ponownie przeczytać ten sam tekst
-                    lastSpokenText = ''; 
-                };
-                utterance.onerror = () => { statusEl.textContent = 'Wystąpił błąd podczas czytania.'; };
+                utterance.onend = () => { statusEl.textContent = 'Zakończono.'; lastSpokenText = ''; };
+                utterance.onerror = () => { statusEl.textContent = 'Błąd czytania.'; };
 
                 window.speechSynthesis.speak(utterance);
             };
@@ -94,30 +156,62 @@
                 if (selection.trim()) {
                     speak(selection);
                 } else {
-                    // Jeśli nie ma zaznaczenia, zatrzymaj mowę
                     window.speechSynthesis.cancel();
                 }
             };
 
-            // Wyzwalacz dla Android/PC (automatyczny z opóźnieniem)
             document.addEventListener('selectionchange', () => {
+                if (!isTtsEnabled) return;
                 clearTimeout(debounceTimeout);
                 debounceTimeout = setTimeout(processSelection, 400);
             });
 
-            // Wyzwalacz dla iOS (ręczny po dotknięciu)
             document.addEventListener('touchend', () => {
-                // Użyj krótkiego opóźnienia, aby dać przeglądarce czas na usunięcie zaznaczenia
+                if (!isTtsEnabled) return;
                 setTimeout(() => {
                     const selection = window.getSelection().toString();
                     if (selection.trim()) {
-                        // Jeśli po dotknięciu nadal jest coś zaznaczone, przeczytaj to
                         speak(selection);
                     } else {
-                        // Jeśli po dotknięciu nie ma zaznaczenia, upewnij się, że mowa jest zatrzymana
                         window.speechSynthesis.cancel();
                     }
-                }, 50); // Krótkie opóźnienie (50ms)
+                }, 50);
+            });
+
+            // --- Event Listeners for Buttons ---
+
+            toggleBtn.addEventListener('click', () => {
+                isTtsEnabled = !isTtsEnabled;
+                if (isTtsEnabled) {
+                    toggleBtn.textContent = 'Czytanie Włączone';
+                    toggleBtn.classList.add('active');
+                    statusEl.textContent = 'Czekam na zaznaczenie...';
+                } else {
+                    toggleBtn.textContent = 'Czytanie Wyłączone';
+                    toggleBtn.classList.remove('active');
+                    window.speechSynthesis.cancel();
+                    statusEl.textContent = 'Czytanie jest wyłączone.';
+                }
+            });
+
+            femaleBtn.addEventListener('click', () => {
+                selectedVoice = polishVoices.female;
+                femaleBtn.classList.add('active');
+                maleBtn.classList.remove('active');
+            });
+
+            maleBtn.addEventListener('click', () => {
+                selectedVoice = polishVoices.male;
+                maleBtn.classList.add('active');
+                femaleBtn.classList.remove('active');
+            });
+
+            pauseBtn.addEventListener('click', () => {
+                window.speechSynthesis.pause();
+            });
+
+            resumeBtn.addEventListener('click', () => {
+                window.speechSynthesis.resume();
             });
         });
     </script>
