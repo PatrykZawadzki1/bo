@@ -96,7 +96,7 @@
             
             let lastUtteranceText = '';
             let lastCharIndex = 0;
-            let lastValidSelection = ''; // Zmienna do przechowania zaznaczenia na mobile
+            let isPaused = false;
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -140,19 +140,21 @@
                 };
                 
                 utterance.onstart = () => {
+                    isPaused = false;
                     statusEl.textContent = 'Czytam...';
                     pauseBtn.disabled = false;
                 };
                 
                 utterance.onend = () => {
-                    statusEl.textContent = 'Zakończono.';
-                    pauseBtn.disabled = true;
-                    if (lastCharIndex >= lastUtteranceText.length - 1) {
+                    if (!isPaused) {
+                        statusEl.textContent = 'Zakończono.';
+                        pauseBtn.disabled = true;
                         lastCharIndex = 0;
                     }
                 };
                 
                 utterance.onerror = () => {
+                    isPaused = false;
                     statusEl.textContent = 'Błąd czytania.';
                     pauseBtn.disabled = true;
                 };
@@ -171,12 +173,6 @@
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
                 
-                const currentSelection = window.getSelection().toString().trim();
-                if (currentSelection) {
-                    lastValidSelection = currentSelection; // Zawsze zapamiętuj ostatnie zaznaczenie
-                }
-
-                // Logika dla desktopu
                 clearTimeout(debounceTimeout);
                 if (!window.matchMedia("(pointer: coarse)").matches) {
                     debounceTimeout = setTimeout(() => {
@@ -186,12 +182,13 @@
                 }
             });
 
-            document.addEventListener('touchend', () => {
-                if (!isTtsEnabled) return;
-                // Na mobile, użyj zapamiętanego tekstu, bo zaznaczenie znika po touchend
-                if (lastValidSelection) {
-                    handleNewSelection(lastValidSelection);
-                    lastValidSelection = ''; // Wyczyść po użyciu
+            // Użycie 'mouseup' zamiast 'touchend' dla lepszej kompatybilności
+            document.addEventListener('mouseup', () => {
+                if (!isTtsEnabled || !window.matchMedia("(pointer: coarse)").matches) return;
+                
+                const selectionNow = window.getSelection().toString().trim();
+                if (selectionNow) {
+                    handleNewSelection(selectionNow);
                 }
             });
 
@@ -221,7 +218,7 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                // Usunięto dodatkowy warunek, aby naprawić błąd na iOS
+                isPaused = true; // Ustaw flagę pauzy
                 window.speechSynthesis.cancel();
             });
 
