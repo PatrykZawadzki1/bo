@@ -96,6 +96,7 @@
             let polishVoices = { female: null, male: null };
             let currentUtterance = null;
             let lastSpokenPosition = 0;
+            let speechStartTime = 0;
             const isAndroid = /Android/.test(navigator.userAgent); // Detect Android
 
             if (!('speechSynthesis' in window)) {
@@ -126,7 +127,6 @@
                     resumeBtn.disabled = false; // Enable resume if speaking or paused
                 } else {
                     pauseBtn.disabled = true;
-                    // Enable resume on Android if there's saved text
                     resumeBtn.disabled = (isAndroid && lastSpokenText && lastSpokenPosition < lastSpokenText.length) ? false : !lastSpokenText;
                 }
             }
@@ -154,29 +154,47 @@
 
                 currentUtterance.onstart = () => { 
                     statusEl.textContent = 'Czytam...'; 
-                    updatePlaybackButtons(); // Update buttons on start
+                    speechStartTime = Date.now(); // Track start time for Android
+                    updatePlaybackButtons();
                 };
                 currentUtterance.onend = () => {
                     statusEl.textContent = 'Zakończono.';
                     lastSpokenText = '';
                     lastSpokenPosition = 0;
                     currentUtterance = null;
-                    updatePlaybackButtons(); // Update buttons after speech ends
+                    speechStartTime = 0;
+                    updatePlaybackButtons();
                 };
                 currentUtterance.onerror = () => {
                     statusEl.textContent = 'Błąd czytania.';
                     currentUtterance = null;
-                    updatePlaybackButtons(); // Update buttons on error
+                    speechStartTime = 0;
+                    updatePlaybackButtons();
                 };
 
                 // Track progress for Android
                 if (isAndroid) {
                     currentUtterance.onboundary = (event) => {
-                        if (event.name === 'word') {
-                            lastSpokenPosition = startPosition + (event.charIndex || 0);
-                            updatePlaybackButtons(); // Update buttons on boundary
+                        if (event.name === 'word' && event.charIndex !== undefined) {
+                            lastSpokenPosition = startPosition + event.charIndex;
+                            updatePlaybackButtons();
                         }
                     };
+                    // Fallback: Estimate position based on time if onboundary fails
+                    if (!currentUtterance.onboundary) {
+                        const estimatedCharsPerSecond = 10; // Rough estimate for Polish speech
+                        const updatePosition = setInterval(() => {
+                            if (!window.speechSynthesis.speaking || !currentUtterance) {
+                                clearInterval(updatePosition);
+                                return;
+                            }
+                            const elapsedSeconds = (Date.now() - speechStartTime) / 1000;
+                            lastSpokenPosition = startPosition + Math.min(
+                                Math.floor(elapsedSeconds * estimatedCharsPerSecond),
+                                textToSpeak.length
+                            );
+                        }, 500);
+                    }
                 }
 
                 window.speechSynthesis.speak(currentUtterance);
@@ -186,7 +204,7 @@
                 const selection = window.getSelection().toString();
                 if (selection.trim()) {
                     lastSpokenPosition = 0;
-                    lastSpokenText = selection; // Update lastSpokenText for Android
+                    lastSpokenText = selection;
                     speak(selection);
                 } else if (!window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
                     statusEl.textContent = 'Czekam na zaznaczenie...';
@@ -200,25 +218,24 @@
                 debounceTimeout = setTimeout(processSelection, 400);
             });
 
-            // Mobile touch events for Android and iOS
+            // Mobile touch events
             document.addEventListener('touchend', (e) => {
                 if (!isTtsEnabled) return;
                 setTimeout(() => {
                     const selection = window.getSelection().toString();
                     if (selection.trim()) {
                         lastSpokenPosition = 0;
-                        lastSpokenText = selection; // Update lastSpokenText
+                        lastSpokenText = selection;
                         speak(selection);
                     }
-                }, 100); // Increased delay for Android reliability
+                }, 100);
             });
 
             // Save selection on Android before it clears
             if (isAndroid) {
                 document.addEventListener('touchstart', (e) => {
                     if (!isTtsEnabled) return;
-                    // Prevent default to avoid selection clearing on Android
-                    if (e.target !== pauseBtn && e.target !== resumeBtn) {
+                    if (e.target !== paysagesBtn && e.target !== resumeBtn) {
                         const selection = window.getSelection().toString();
                         if (selection.trim()) {
                             lastSpokenText = selection;
@@ -243,7 +260,8 @@
                     lastSpokenText = '';
                     lastSpokenPosition = 0;
                     currentUtterance = null;
-                    updatePlaybackButtons(); // Update buttons after toggle
+                    speechStartTime = 0;
+                    updatePlaybackButtons();
                 }
             });
 
@@ -263,13 +281,13 @@
                 if (window.speechSynthesis.speaking) {
                     window.speechSynthesis.pause();
                     statusEl.textContent = 'Zatrzymano.';
-                    updatePlaybackButtons(); // Ensure buttons update after pause
+                    updatePlaybackButtons();
                 }
             });
 
-            resumeBtn.addEventListener('click', (e) => {
+            resumeBtn.addEventListener('click', () => {
                 if (isAndroid) {
-                    // Android: Always restart from last position if text exists
+                    // Android: Restart from last position if text exists
                     if (lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
                         window.speechSynthesis.cancel(); // Clear any stuck utterance
                         speak(lastSpokenText, lastSpokenPosition);
@@ -280,12 +298,12 @@
                     window.speechSynthesis.resume();
                     statusEl.textContent = 'Czytam...';
                 } else if (lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
-                    // Fallback for non-Android if utterance is lost
+                    // Fallback for non-Android
                     window.speechSynthesis.cancel();
                     speak(lastSpokenText, lastSpokenPosition);
                     statusEl.textContent = 'Czytam...';
                 }
-                updatePlaybackButtons(); // Update buttons after resume
+                updatePlaybackButtons();
             });
         });
     </script>
