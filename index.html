@@ -123,10 +123,11 @@
             function updatePlaybackButtons() {
                 if (window.speechSynthesis.speaking || window.speechSynthesis.paused) {
                     pauseBtn.disabled = false;
-                    resumeBtn.disabled = window.speechSynthesis.paused ? false : true;
+                    resumeBtn.disabled = false; // Enable resume if speaking or paused
                 } else {
                     pauseBtn.disabled = true;
-                    resumeBtn.disabled = lastSpokenText ? false : true;
+                    // Enable resume on Android if there's saved text, even if not paused
+                    resumeBtn.disabled = (isAndroid && lastSpokenText && lastSpokenPosition < lastSpokenText.length) ? false : !lastSpokenText;
                 }
             }
             setInterval(updatePlaybackButtons, 250);
@@ -157,10 +158,12 @@
                     lastSpokenText = '';
                     lastSpokenPosition = 0;
                     currentUtterance = null;
+                    updatePlaybackButtons(); // Update buttons after speech ends
                 };
                 currentUtterance.onerror = () => {
                     statusEl.textContent = 'Błąd czytania.';
                     currentUtterance = null;
+                    updatePlaybackButtons(); // Update buttons on error
                 };
 
                 // Track progress for Android
@@ -231,6 +234,7 @@
                     lastSpokenText = '';
                     lastSpokenPosition = 0;
                     currentUtterance = null;
+                    updatePlaybackButtons(); // Update buttons after toggle
                 }
             });
 
@@ -250,6 +254,7 @@
                 if (window.speechSynthesis.speaking) {
                     window.speechSynthesis.pause();
                     statusEl.textContent = 'Zatrzymano.';
+                    updatePlaybackButtons(); // Ensure buttons update after pause
                 }
             });
 
