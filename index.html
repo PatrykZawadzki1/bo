@@ -114,4 +114,13 @@
                         // Jeśli po dotknięciu nadal jest coś zaznaczone, przeczytaj to
                         speak(selection);
                     } else {
-                        // Jeśli po dotknięciu
+                        // Jeśli po dotknięciu nie ma zaznaczenia, upewnij się, że mowa jest zatrzymana
+                        window.speechSynthesis.cancel();
+                    }
+                }, 50); // Krótkie opóźnienie (50ms)
+            });
+        });
+    </script>
+
+</body>
+</html>
