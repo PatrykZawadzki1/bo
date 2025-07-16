@@ -94,9 +94,9 @@
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
             
-            // Zmienne, które ZAWSZE przechowują stan ostatniego czytania
             let lastUtteranceText = '';
             let lastCharIndex = 0;
+            let lastValidSelection = ''; // Zmienna do przechowania zaznaczenia na mobile
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -126,7 +126,6 @@
 
                 window.speechSynthesis.cancel();
 
-                // Zawsze zapamiętuj główny tekst
                 if (resumeIndex === 0) {
                     lastUtteranceText = text;
                 }
@@ -148,7 +147,6 @@
                 utterance.onend = () => {
                     statusEl.textContent = 'Zakończono.';
                     pauseBtn.disabled = true;
-                    // Jeśli doszło do końca, ustaw wskaźnik na początek do następnego wznowienia
                     if (lastCharIndex >= lastUtteranceText.length - 1) {
                         lastCharIndex = 0;
                     }
@@ -164,29 +162,36 @@
 
             const handleNewSelection = (selection) => {
                 if (selection) {
-                    lastCharIndex = 0; // Resetuj postęp dla nowego tekstu
+                    lastCharIndex = 0;
                     speak(selection, 0);
-                    resumeBtn.disabled = false; // Aktywuj Wznów na stałe po pierwszym czytaniu
+                    resumeBtn.disabled = false;
                 }
             };
 
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
                 
+                const currentSelection = window.getSelection().toString().trim();
+                if (currentSelection) {
+                    lastValidSelection = currentSelection; // Zawsze zapamiętuj ostatnie zaznaczenie
+                }
+
+                // Logika dla desktopu
                 clearTimeout(debounceTimeout);
                 if (!window.matchMedia("(pointer: coarse)").matches) {
                     debounceTimeout = setTimeout(() => {
                         const selectionNow = window.getSelection().toString().trim();
-                        handleNewSelection(selectionNow);
+                        if(selectionNow) handleNewSelection(selectionNow);
                     }, 500);
                 }
             });
 
             document.addEventListener('touchend', () => {
                 if (!isTtsEnabled) return;
-                const selectionNow = window.getSelection().toString().trim();
-                if (selectionNow) {
-                    handleNewSelection(selectionNow);
+                // Na mobile, użyj zapamiętanego tekstu, bo zaznaczenie znika po touchend
+                if (lastValidSelection) {
+                    handleNewSelection(lastValidSelection);
+                    lastValidSelection = ''; // Wyczyść po użyciu
                 }
             });
 
@@ -216,9 +221,8 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                if (window.speechSynthesis.speaking) {
-                    window.speechSynthesis.cancel();
-                }
+                // Usunięto dodatkowy warunek, aby naprawić błąd na iOS
+                window.speechSynthesis.cancel();
             });
 
             resumeBtn.addEventListener('click', () => {
