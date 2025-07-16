@@ -126,7 +126,7 @@
                     resumeBtn.disabled = false; // Enable resume if speaking or paused
                 } else {
                     pauseBtn.disabled = true;
-                    // Enable resume on Android if there's saved text, even if not paused
+                    // Enable resume on Android if there's saved text
                     resumeBtn.disabled = (isAndroid && lastSpokenText && lastSpokenPosition < lastSpokenText.length) ? false : !lastSpokenText;
                 }
             }
@@ -152,7 +152,10 @@
                     currentUtterance.voice = selectedVoice;
                 }
 
-                currentUtterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
+                currentUtterance.onstart = () => { 
+                    statusEl.textContent = 'Czytam...'; 
+                    updatePlaybackButtons(); // Update buttons on start
+                };
                 currentUtterance.onend = () => {
                     statusEl.textContent = 'Zakończono.';
                     lastSpokenText = '';
@@ -171,6 +174,7 @@
                     currentUtterance.onboundary = (event) => {
                         if (event.name === 'word') {
                             lastSpokenPosition = startPosition + (event.charIndex || 0);
+                            updatePlaybackButtons(); // Update buttons on boundary
                         }
                     };
                 }
@@ -182,6 +186,7 @@
                 const selection = window.getSelection().toString();
                 if (selection.trim()) {
                     lastSpokenPosition = 0;
+                    lastSpokenText = selection; // Update lastSpokenText for Android
                     speak(selection);
                 } else if (!window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
                     statusEl.textContent = 'Czekam na zaznaczenie...';
@@ -195,25 +200,29 @@
                 debounceTimeout = setTimeout(processSelection, 400);
             });
 
-            // Mobile touch events
-            document.addEventListener('touchend', () => {
+            // Mobile touch events for Android and iOS
+            document.addEventListener('touchend', (e) => {
                 if (!isTtsEnabled) return;
                 setTimeout(() => {
                     const selection = window.getSelection().toString();
                     if (selection.trim()) {
                         lastSpokenPosition = 0;
+                        lastSpokenText = selection; // Update lastSpokenText
                         speak(selection);
                     }
-                }, 50);
+                }, 100); // Increased delay for Android reliability
             });
 
             // Save selection on Android before it clears
             if (isAndroid) {
                 document.addEventListener('touchstart', (e) => {
                     if (!isTtsEnabled) return;
-                    const selection = window.getSelection().toString();
-                    if (selection.trim()) {
-                        lastSpokenText = selection;
+                    // Prevent default to avoid selection clearing on Android
+                    if (e.target !== pauseBtn && e.target !== resumeBtn) {
+                        const selection = window.getSelection().toString();
+                        if (selection.trim()) {
+                            lastSpokenText = selection;
+                        }
                     }
                 });
             }
@@ -258,17 +267,25 @@
                 }
             });
 
-            resumeBtn.addEventListener('click', () => {
-                if (window.speechSynthesis.paused && !isAndroid) {
+            resumeBtn.addEventListener('click', (e) => {
+                if (isAndroid) {
+                    // Android: Always restart from last position if text exists
+                    if (lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
+                        window.speechSynthesis.cancel(); // Clear any stuck utterance
+                        speak(lastSpokenText, lastSpokenPosition);
+                        statusEl.textContent = 'Czytam...';
+                    }
+                } else if (window.speechSynthesis.paused) {
+                    // Desktop/iOS: Use native resume
                     window.speechSynthesis.resume();
                     statusEl.textContent = 'Czytam...';
-                } else if (isAndroid && lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
-                    // Android-specific resume: restart from last position
-                    speak(lastSpokenText, lastSpokenPosition);
                 } else if (lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
                     // Fallback for non-Android if utterance is lost
+                    window.speechSynthesis.cancel();
                     speak(lastSpokenText, lastSpokenPosition);
+                    statusEl.textContent = 'Czytam...';
                 }
+                updatePlaybackButtons(); // Update buttons after resume
             });
         });
     </script>
