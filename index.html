@@ -91,13 +91,9 @@
 
             let isTtsEnabled = true;
             let debounceTimeout;
+            let lastSpokenText = '';
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
-            
-            let lastUtteranceText = '';
-            let lastCharIndex = 0;
-            let isPaused = false;
-            let lastMobileSelection = '';
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -107,11 +103,10 @@
 
             function loadVoices() {
                 const voices = window.speechSynthesis.getVoices();
-                if (voices.length === 0) return;
-
                 const plVoices = voices.filter(voice => voice.lang === 'pl-PL');
-                polishVoices.female = plVoices.find(v => v.name.includes('Zofia') || v.name.toLowerCase().includes('female')) || plVoices.find(v => v.gender === 'female') || null;
-                polishVoices.male = plVoices.find(v => v.name.includes('Krzysztof') || v.name.toLowerCase().includes('male')) || plVoices.find(v => v.gender === 'male') || null;
+
+                polishVoices.female = plVoices.find(v => v.name.includes('Zofia') || v.name.toLowerCase().includes('female')) || null;
+                polishVoices.male = plVoices.find(v => v.name.includes('Krzysztof') || v.name.toLowerCase().includes('male')) || null;
 
                 if (polishVoices.female) femaleBtn.disabled = false;
                 if (polishVoices.male) maleBtn.disabled = false;
@@ -122,95 +117,80 @@
                 speechSynthesis.onvoiceschanged = loadVoices;
             }
 
-            const speak = (text, resumeIndex = 0) => {
-                if (!isTtsEnabled || !text) return;
+            function updatePlaybackButtons() {
+                if (window.speechSynthesis.speaking) {
+                    pauseBtn.disabled = false;
+                    resumeBtn.disabled = window.speechSynthesis.paused ? false : true;
+                } else {
+                    pauseBtn.disabled = true;
+                    resumeBtn.disabled = true;
+                }
+            }
+            setInterval(updatePlaybackButtons, 250);
+
+            const speak = (text) => {
+                if (!isTtsEnabled) return;
+                const trimmedText = text.trim();
+                if (!trimmedText) return;
+
+                if (window.speechSynthesis.speaking && lastSpokenText === trimmedText) return;
 
                 window.speechSynthesis.cancel();
+                lastSpokenText = trimmedText;
 
-                if (resumeIndex === 0) {
-                    lastUtteranceText = text;
+                const utterance = new SpeechSynthesisUtterance(trimmedText);
+                utterance.lang = 'pl-PL';
+                if (selectedVoice) {
+                    utterance.voice = selectedVoice;
                 }
                 
-                const textToSpeak = text.substring(resumeIndex);
-                const utterance = new SpeechSynthesisUtterance(textToSpeak);
-                utterance.lang = 'pl-PL';
-                if (selectedVoice) utterance.voice = selectedVoice;
-                
-                utterance.onboundary = (event) => {
-                    lastCharIndex = resumeIndex + event.charIndex;
-                };
-                
-                utterance.onstart = () => {
-                    isPaused = false;
-                    statusEl.textContent = 'Czytam...';
-                    pauseBtn.disabled = false;
-                };
-                
-                utterance.onend = () => {
-                    if (!isPaused) {
-                        statusEl.textContent = 'Zakończono.';
-                        pauseBtn.disabled = true;
-                        lastCharIndex = 0;
-                    }
-                };
-                
-                utterance.onerror = () => {
-                    isPaused = false;
-                    statusEl.textContent = 'Błąd czytania.';
-                    pauseBtn.disabled = true;
-                };
+                utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
+                utterance.onend = () => { statusEl.textContent = 'Zakończono.'; lastSpokenText = ''; };
+                utterance.onerror = () => { statusEl.textContent = 'Błąd czytania.'; };
 
                 window.speechSynthesis.speak(utterance);
             };
 
-            const handleNewSelection = (selection) => {
-                if (selection) {
-                    lastCharIndex = 0;
-                    speak(selection, 0);
-                    resumeBtn.disabled = false;
+            const processSelection = () => {
+                const selection = window.getSelection().toString();
+                if (selection.trim()) {
+                    speak(selection);
+                } else {
+                    window.speechSynthesis.cancel();
                 }
             };
 
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
-                
-                const selectionNow = window.getSelection().toString().trim();
-                
-                // Dla mobile: zapamiętuj tekst w trakcie zaznaczania
-                if (window.matchMedia("(pointer: coarse)").matches) {
-                    if (selectionNow) {
-                        lastMobileSelection = selectionNow;
-                    }
-                } 
-                // Dla desktopu: użyj debouncingu
-                else {
-                    clearTimeout(debounceTimeout);
-                    debounceTimeout = setTimeout(() => {
-                        if(selectionNow) handleNewSelection(selectionNow);
-                    }, 400);
-                }
+                clearTimeout(debounceTimeout);
+                debounceTimeout = setTimeout(processSelection, 400);
             });
 
-            // Przywrócono 'touchend' dla urządzeń mobilnych
             document.addEventListener('touchend', () => {
-                if (!isTtsEnabled || !window.matchMedia("(pointer: coarse)").matches) return;
-                
-                if (lastMobileSelection) {
-                    handleNewSelection(lastMobileSelection);
-                    lastMobileSelection = ''; // Wyczyść po użyciu
-                }
+                if (!isTtsEnabled) return;
+                setTimeout(() => {
+                    const selection = window.getSelection().toString();
+                    if (selection.trim()) {
+                        speak(selection);
+                    } else {
+                        window.speechSynthesis.cancel();
+                    }
+                }, 50);
             });
+
+            // --- Event Listeners for Buttons ---
 
             toggleBtn.addEventListener('click', () => {
                 isTtsEnabled = !isTtsEnabled;
-                toggleBtn.textContent = isTtsEnabled ? 'Czytanie Włączone' : 'Czytanie Wyłączone';
-                toggleBtn.classList.toggle('active', isTtsEnabled);
-                if (!isTtsEnabled) {
+                if (isTtsEnabled) {
+                    toggleBtn.textContent = 'Czytanie Włączone';
+                    toggleBtn.classList.add('active');
+                    statusEl.textContent = 'Czekam na zaznaczenie...';
+                } else {
+                    toggleBtn.textContent = 'Czytanie Wyłączone';
+                    toggleBtn.classList.remove('active');
                     window.speechSynthesis.cancel();
                     statusEl.textContent = 'Czytanie jest wyłączone.';
-                    pauseBtn.disabled = true;
-                } else {
-                    statusEl.textContent = 'Czekam na zaznaczenie...';
                 }
             });
 
@@ -227,14 +207,11 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                isPaused = true;
-                window.speechSynthesis.cancel();
+                window.speechSynthesis.pause();
             });
 
             resumeBtn.addEventListener('click', () => {
-                if (lastUtteranceText) {
-                    speak(lastUtteranceText, lastCharIndex);
-                }
+                window.speechSynthesis.resume();
             });
         });
     </script>
