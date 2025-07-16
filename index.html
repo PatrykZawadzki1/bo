@@ -94,6 +94,8 @@
             let lastSpokenText = '';
             let selectedVoice = null;
             let polishVoices = { female: null, male: null };
+            let currentUtterance = null;
+            let lastSpokenPosition = 0; // Track the last spoken position
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -118,64 +120,97 @@
             }
 
             function updatePlaybackButtons() {
-                if (window.speechSynthesis.speaking) {
+                if (window.speechSynthesis.speaking || window.speechSynthesis.paused) {
                     pauseBtn.disabled = false;
                     resumeBtn.disabled = window.speechSynthesis.paused ? false : true;
                 } else {
                     pauseBtn.disabled = true;
-                    resumeBtn.disabled = true;
+                    resumeBtn.disabled = lastSpokenText ? false : true; // Enable resume if there's saved text
                 }
             }
             setInterval(updatePlaybackButtons, 250);
 
-            const speak = (text) => {
+            const speak = (text, startPosition = 0) => {
                 if (!isTtsEnabled) return;
                 const trimmedText = text.trim();
                 if (!trimmedText) return;
 
-                if (window.speechSynthesis.speaking && lastSpokenText === trimmedText) return;
+                if (window.speechSynthesis.speaking && lastSpokenText === trimmedText && startPosition === 0) return;
 
                 window.speechSynthesis.cancel();
                 lastSpokenText = trimmedText;
+                lastSpokenPosition = startPosition;
 
-                const utterance = new SpeechSynthesisUtterance(trimmedText);
-                utterance.lang = 'pl-PL';
+                const textToSpeak = trimmedText.substring(startPosition);
+                if (!textToSpeak) return;
+
+                currentUtterance = new SpeechSynthesisUtterance(textToSpeak);
+                currentUtterance.lang = 'pl-PL';
                 if (selectedVoice) {
-                    utterance.voice = selectedVoice;
+                    currentUtterance.voice = selectedVoice;
                 }
-                
-                utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
-                utterance.onend = () => { statusEl.textContent = 'Zakończono.'; lastSpokenText = ''; };
-                utterance.onerror = () => { statusEl.textContent = 'Błąd czytania.'; };
 
-                window.speechSynthesis.speak(utterance);
+                currentUtterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
+                currentUtterance.onend = () => {
+                    statusEl.textContent = 'Zakończono.';
+                    lastSpokenText = '';
+                    lastSpokenPosition = 0;
+                    currentUtterance = null;
+                };
+                currentUtterance.onerror = () => {
+                    statusEl.textContent = 'Błąd czytania.';
+                    currentUtterance = null;
+                };
+
+                // Attempt to track progress (not fully reliable across browsers)
+                currentUtterance.onboundary = (event) => {
+                    if (event.name === 'word') {
+                        lastSpokenPosition = startPosition + (event.charIndex || 0);
+                    }
+                };
+
+                window.speechSynthesis.speak(currentUtterance);
             };
 
             const processSelection = () => {
                 const selection = window.getSelection().toString();
                 if (selection.trim()) {
+                    lastSpokenPosition = 0; // Reset position for new selection
                     speak(selection);
                 } else {
-                    window.speechSynthesis.cancel();
+                    // Don't clear lastSpokenText to allow resuming
+                    if (!window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+                        statusEl.textContent = 'Czekam na zaznaczenie...';
+                    }
                 }
             };
 
+            // Handle selection changes on desktop
             document.addEventListener('selectionchange', () => {
                 if (!isTtsEnabled) return;
                 clearTimeout(debounceTimeout);
                 debounceTimeout = setTimeout(processSelection, 400);
             });
 
+            // Handle mobile touch events
             document.addEventListener('touchend', () => {
                 if (!isTtsEnabled) return;
                 setTimeout(() => {
                     const selection = window.getSelection().toString();
                     if (selection.trim()) {
+                        lastSpokenPosition = 0; // Reset position for new selection
                         speak(selection);
-                    } else {
-                        window.speechSynthesis.cancel();
                     }
                 }, 50);
+            });
+
+            // Prevent selection from clearing on mobile tap
+            document.addEventListener('touchstart', (e) => {
+                if (!isTtsEnabled) return;
+                const selection = window.getSelection().toString();
+                if (selection.trim()) {
+                    lastSpokenText = selection; // Save selection even if it clears
+                }
             });
 
             // --- Event Listeners for Buttons ---
@@ -191,6 +226,9 @@
                     toggleBtn.classList.remove('active');
                     window.speechSynthesis.cancel();
                     statusEl.textContent = 'Czytanie jest wyłączone.';
+                    lastSpokenText = '';
+                    lastSpokenPosition = 0;
+                    currentUtterance = null;
                 }
             });
 
@@ -207,11 +245,20 @@
             });
 
             pauseBtn.addEventListener('click', () => {
-                window.speechSynthesis.pause();
+                if (window.speechSynthesis.speaking) {
+                    window.speechSynthesis.pause();
+                    statusEl.textContent = 'Zatrzymano.';
+                }
             });
 
             resumeBtn.addEventListener('click', () => {
-                window.speechSynthesis.resume();
+                if (window.speechSynthesis.paused) {
+                    window.speechSynthesis.resume();
+                    statusEl.textContent = 'Czytam...';
+                } else if (lastSpokenText && lastSpokenPosition < lastSpokenText.length) {
+                    // Resume from last position if utterance is not active
+                    speak(lastSpokenText, lastSpokenPosition);
+                }
             });
         });
     </script>
