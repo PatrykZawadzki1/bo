@@ -56,6 +56,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             const statusEl = document.getElementById('status');
             let debounceTimeout;
+            let lastSpokenText = '';
 
             if (!('speechSynthesis' in window)) {
                 statusEl.textContent = 'Synteza mowy nie jest wspierana.';
@@ -64,25 +65,25 @@
 
             const speak = (text) => {
                 const trimmedText = text.trim();
-                if (!trimmedText) {
+                if (!trimmedText) return;
+
+                // Nie czytaj ponownie tego samego tekstu, jeśli już jest czytany
+                if (window.speechSynthesis.speaking && lastSpokenText === trimmedText) {
                     return;
-                }
-                
-                // Sprawdź, czy ten sam tekst nie jest już czytany
-                if (window.speechSynthesis.speaking) {
-                    const currentUtterance = window.speechSynthesis.utterance;
-                    if (currentUtterance && currentUtterance.text === trimmedText) {
-                        return;
-                    }
                 }
 
                 window.speechSynthesis.cancel();
+                lastSpokenText = trimmedText;
 
                 const utterance = new SpeechSynthesisUtterance(trimmedText);
                 utterance.lang = 'pl-PL';
                 
                 utterance.onstart = () => { statusEl.textContent = 'Czytam...'; };
-                utterance.onend = () => { statusEl.textContent = 'Zakończono. Zaznacz nowy tekst.'; };
+                utterance.onend = () => { 
+                    statusEl.textContent = 'Zakończono. Zaznacz nowy tekst.';
+                    // Resetuj po zakończeniu, aby można było ponownie przeczytać ten sam tekst
+                    lastSpokenText = ''; 
+                };
                 utterance.onerror = () => { statusEl.textContent = 'Wystąpił błąd podczas czytania.'; };
 
                 window.speechSynthesis.speak(utterance);
@@ -93,30 +94,24 @@
                 if (selection.trim()) {
                     speak(selection);
                 } else {
-                    // Jeśli nie ma zaznaczenia, zatrzymaj mowę i zresetuj status
+                    // Jeśli nie ma zaznaczenia, zatrzymaj mowę
                     window.speechSynthesis.cancel();
-                    statusEl.textContent = 'Czekam na zaznaczenie...';
                 }
             };
 
-            // Główny mechanizm oparty na 'selectionchange'
+            // Wyzwalacz dla Android/PC (automatyczny z opóźnieniem)
             document.addEventListener('selectionchange', () => {
                 clearTimeout(debounceTimeout);
-                // Użyj opóźnienia, aby poczekać na zakończenie zaznaczania przez użytkownika
-                debounceTimeout = setTimeout(() => {
-                    // Po upływie opóźnienia, ponownie sprawdź aktualne zaznaczenie
-                    processSelection();
-                }, 400);
+                debounceTimeout = setTimeout(processSelection, 400);
             });
 
-            // Dodatkowy wyzwalacz dla iOS, który reaguje na dotknięcie
+            // Wyzwalacz dla iOS (ręczny po dotknięciu)
             document.addEventListener('touchend', () => {
-                // Nie używaj opóźnienia, reaguj natychmiast na dotknięcie
-                // To pomaga "odblokować" mowę na iOS
-                processSelection();
-            });
-        });
-    </script>
-
-</body>
-</html>
+                // Użyj krótkiego opóźnienia, aby dać przeglądarce czas na usunięcie zaznaczenia
+                setTimeout(() => {
+                    const selection = window.getSelection().toString();
+                    if (selection.trim()) {
+                        // Jeśli po dotknięciu nadal jest coś zaznaczone, przeczytaj to
+                        speak(selection);
+                    } else {
+                        // Jeśli po dotknięciu
